@@ -1,0 +1,17 @@
+{
+  "name": "profit-script",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsc && node --env-file=.env src/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.91.8"
+  }
+}
