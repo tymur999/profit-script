@@ -8,7 +8,7 @@ async function calculatePumpFunProfit(walletAddress: PublicKey, myToken: PublicK
     const sigs: ConfirmedSignatureInfo[] = [];
     let lastTxn: string | undefined = undefined;
     do {
-        const newSigs = await connection.getSignaturesForAddress(myToken, {limit: 1000, before: lastTxn});
+        const newSigs = await connection.getSignaturesForAddress(walletAddress, {limit: 1000, before: lastTxn});
         if(!newSigs.length) break;
         sigs.push(
             ...newSigs
