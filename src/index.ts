@@ -18,7 +18,7 @@ async function calculatePumpFunProfit(walletAddress: PublicKey, myToken: PublicK
 
     let irrelevantTxns = 0;
     for(const sig of sigs) {
-        if(irrelevantTxns > 200) return solNetProfit;
+        if(irrelevantTxns > 100 && solNetProfit != 0) return solNetProfit;
         if(sig.err) {
             irrelevantTxns++;
             continue;
