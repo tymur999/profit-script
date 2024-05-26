@@ -16,35 +16,48 @@ async function calculatePumpFunProfit(walletAddress: PublicKey, myToken: PublicK
         lastTxn = newSigs[newSigs.length - 1]?.signature;
     } while(true);
 
-    const parseTasks: Promise<any>[] = [];
+    let irrelevantTxns = 0;
     for(const sig of sigs) {
-        if(sig.err) continue;
-        parseTasks.push(connection.getParsedTransaction(sig.signature, {maxSupportedTransactionVersion: 0})
-            .then(txn => {
-                if(!txn || !txn.meta) return;
+        if(irrelevantTxns > 200) return solNetProfit;
+        if(sig.err) {
+            irrelevantTxns++;
+            continue;
+        }
+        const txn = await connection.getParsedTransaction(sig.signature, {maxSupportedTransactionVersion: 0});
+        if(!txn || !txn.meta) {
+            irrelevantTxns++;
+            continue;
+        }
 
-                //check if there was a change in myToken
-                const postTokenBalances = txn.meta.postTokenBalances;
-                const preTokenBalances = txn.meta.preTokenBalances;
-                if(!postTokenBalances?.length && !preTokenBalances?.length) return;
-                const postMyToken = postTokenBalances?.find(tb => tb.mint == myToken.toString() &&
-                    tb.owner == walletAddress.toString());
-                const preMyToken = preTokenBalances?.find(tb => tb.mint == myToken.toString() &&
-                    tb.owner == walletAddress.toString());
-                if(!postMyToken && !preMyToken) return;
+        //check if there was a change in myToken
+        const postTokenBalances = txn.meta.postTokenBalances;
+        const preTokenBalances = txn.meta.preTokenBalances;
+        if(!postTokenBalances?.length && !preTokenBalances?.length) {
+            irrelevantTxns++;
+            continue;
+        }
+        const postMyToken = postTokenBalances?.find(tb => tb.mint == myToken.toString() &&
+            tb.owner == walletAddress.toString());
+        const preMyToken = preTokenBalances?.find(tb => tb.mint == myToken.toString() &&
+            tb.owner == walletAddress.toString());
+        if(!postMyToken && !preMyToken) {
+            irrelevantTxns++;
+            continue;
+        }
 
 
-                //calculate sol change
-                if(!txn.meta.preBalances.length || !txn.meta.postBalances.length) return;
-                let solChange = txn.meta.postBalances[0] - txn.meta.preBalances[0]; //in lamports
-                console.log("new transaction with sol change:", solChange);
-                solNetProfit += solChange;
-            }));
+        //calculate sol change
+        if(!txn.meta.preBalances.length || !txn.meta.postBalances.length) {
+            irrelevantTxns++;
+            continue;
+        }
+        let solChange = txn.meta.postBalances[0] - txn.meta.preBalances[0]; //in lamports
+        console.log("new transaction with sol change:", solChange);
+        solNetProfit += solChange;
+        irrelevantTxns = 0;
     }
-
-    await Promise.all(parseTasks);
-
-    console.log(solNetProfit);
+    return solNetProfit
 }
 
-calculatePumpFunProfit(new PublicKey("8NqLtG4BnGyQJrfu91bWK215SJ1qadfhSdygeyX6VjsM"), new PublicKey("BXAtPnRuZjPKe9Gsv9Wsgh54yqWTVT6gR7w7tSYYThnW"));
+calculatePumpFunProfit(new PublicKey("4TstnQxFS89Vfn1xtxN4V4P9mzaFiGQME1fn8EFdXCSm"), new PublicKey("Bh1vHe8suqDnRWJFzgfrXRTFQ6XiXZCip4DQLKLokB5K"))
+    .then(console.log);
