@@ -1,63 +1,70 @@
-import {ConfirmedSignatureInfo, Connection, PublicKey} from "@solana/web3.js";
+import {clusterApiUrl, ConfirmedSignatureInfo, Connection, PublicKey} from "@solana/web3.js";
 
-const connection = new Connection(process.env.RPC!);
+const connection = new Connection("https://mainnet.helius-rpc.com/?api-key=" + process.env.HELIUS_KEY);
 
-//note: only supports last 1000 txns
 async function calculatePumpFunProfit(walletAddress: PublicKey, myToken: PublicKey) {
     let solNetProfit = 0;
-    const sigs: ConfirmedSignatureInfo[] = [];
     let lastTxn: string | undefined = undefined;
     do {
-        const newSigs = await connection.getSignaturesForAddress(walletAddress, {limit: 1000, before: lastTxn});
-        if(!newSigs.length) break;
-        sigs.push(
-            ...newSigs
-        );
-        lastTxn = newSigs[newSigs.length - 1]?.signature;
+        const sigs = await connection.getSignaturesForAddress(walletAddress, {limit: 500, before: lastTxn});
+        if(!sigs.length) break;
+        lastTxn = sigs[sigs.length - 1]?.signature;
+
+        const sigsChunked: string[][] = [];
+        for(let i = 0; i < sigs.length; i++) {
+            const chunkIndex = Math.trunc(i/100);
+            if(!sigsChunked[chunkIndex]) sigsChunked[chunkIndex] = [];
+            sigsChunked[chunkIndex].push(sigs[i].signature);
+        }
+
+        for(const chunk of sigsChunked) {
+            let chunkHasToken = false;
+            let res: Response | null = null;
+            do {
+                res = await fetch("https://api.helius.xyz/v0/transactions?api-key=" + process.env.HELIUS_KEY, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({transactions: chunk})
+                });
+            } while(!res?.ok);
+            const txnArr: HeliusResponse[] = await res.json();
+
+            for(const txn of txnArr) {
+                if(txn.transactionError) continue;
+                const containsToken = txn.accountData.some(ad => ad.tokenBalanceChanges.some(tbc => tbc.mint == myToken.toString()));
+                if(!containsToken) continue;
+                const accountData = txn.accountData.find(ad => ad.account == walletAddress.toString());
+                if(!accountData) continue;
+                chunkHasToken = true;
+                solNetProfit += accountData.nativeBalanceChange;
+            }
+
+            if(!chunkHasToken && solNetProfit != 0) return solNetProfit; //assume end, return solNetProfit
+        }
     } while(true);
-
-    let irrelevantTxns = 0;
-    for(const sig of sigs) {
-        if(irrelevantTxns > 100 && solNetProfit != 0) return solNetProfit;
-        if(sig.err) {
-            irrelevantTxns++;
-            continue;
-        }
-        const txn = await connection.getParsedTransaction(sig.signature, {maxSupportedTransactionVersion: 0});
-        if(!txn || !txn.meta) {
-            irrelevantTxns++;
-            continue;
-        }
-
-        //check if there was a change in myToken
-        const postTokenBalances = txn.meta.postTokenBalances;
-        const preTokenBalances = txn.meta.preTokenBalances;
-        if(!postTokenBalances?.length && !preTokenBalances?.length) {
-            irrelevantTxns++;
-            continue;
-        }
-        const postMyToken = postTokenBalances?.find(tb => tb.mint == myToken.toString() &&
-            tb.owner == walletAddress.toString());
-        const preMyToken = preTokenBalances?.find(tb => tb.mint == myToken.toString() &&
-            tb.owner == walletAddress.toString());
-        if(!postMyToken && !preMyToken) {
-            irrelevantTxns++;
-            continue;
-        }
-
-
-        //calculate sol change
-        if(!txn.meta.preBalances.length || !txn.meta.postBalances.length) {
-            irrelevantTxns++;
-            continue;
-        }
-        let solChange = txn.meta.postBalances[0] - txn.meta.preBalances[0]; //in lamports
-        console.log("new transaction with sol change:", solChange);
-        solNetProfit += solChange;
-        irrelevantTxns = 0;
-    }
     return solNetProfit
 }
 
 calculatePumpFunProfit(new PublicKey("4TstnQxFS89Vfn1xtxN4V4P9mzaFiGQME1fn8EFdXCSm"), new PublicKey("Bh1vHe8suqDnRWJFzgfrXRTFQ6XiXZCip4DQLKLokB5K"))
     .then(console.log);
+
+interface HeliusResponse {
+    accountData: [
+        {
+            account: string,
+            nativeBalanceChange: number,
+            tokenBalanceChanges: [
+                {
+                    userAccount: string,
+                    tokenAccount: string,
+                    "rawTokenAmount": {
+                        "tokenAmount": bigint,
+                        "decimals": bigint
+                    },
+                    mint: string
+                }
+            ]
+        }
+    ],
+    transactionError: any
+}
